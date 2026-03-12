@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FORGE — Machining Intelligence</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">FORGE <span>v0.1.0 — machining intelligence</span></div>
+  <div class="divider"></div>
+
+  <button class="upload-btn" onclick="document.getElementById('gcode-file').click()">
+    ⬆ UPLOAD G-CODE
+  </button>
+  <input type="file" id="gcode-file" accept=".gcode,.nc,.tap">
+
+  <div class="divider"></div>
+
+  <div class="param-pill">
+    <span class="plabel">TOOL Ø</span>
+    <input type="number" id="param-diameter" value="10" step="0.5" min="1" max="50">
+    <span class="plabel">mm</span>
+  </div>
+
+  <div class="param-pill">
+    <span class="plabel">FLUTES</span>
+    <input type="number" id="param-flutes" value="4" step="1" min="1" max="8" style="width:40px">
+  </div>
+
+  <div class="param-pill">
+    <span class="plabel">MATERIAL</span>
+    <select id="param-material">
+      <option value="aluminum_6061">AL-6061</option>
+      <option value="aluminum_7075">AL-7075</option>
+      <option value="steel_1045">ST-1045</option>
+      <option value="steel_4140">ST-4140</option>
+      <option value="stainless_316">SS-316</option>
+      <option value="titanium_ti6al4v">TI-6AL4V</option>
+      <option value="inconel_718">IN-718</option>
+    </select>
+  </div>
+
+  <div class="param-pill">
+    <span class="plabel">STOCK</span>
+    <input type="number" id="param-stock-x" value="100" step="10" min="10" style="width:46px">
+    <span class="plabel">×</span>
+    <input type="number" id="param-stock-y" value="100" step="10" min="10" style="width:46px">
+    <span class="plabel">×</span>
+    <input type="number" id="param-stock-z" value="30"  step="5"  min="5"  style="width:46px">
+  </div>
+
+  <div class="divider"></div>
+
+  <button class="run-btn" id="run-btn" onclick="runSimulation()">▶ SIMULATE</button>
+
+  <div class="status">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">READY</span>
+  </div>
+</header>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- 3D SCENE -->
+  <div id="scene-container">
+    <canvas id="three-canvas"></canvas>
+
+    <!-- Corner brackets -->
+    <div class="corner-bracket corner-tl"></div>
+    <div class="corner-bracket corner-tr"></div>
+    <div class="corner-bracket corner-bl"></div>
+    <div class="corner-bracket corner-br"></div>
+
+    <!-- Top left overlay -->
+    <div class="scene-overlay overlay-tl" id="overlay-tl">
+      <div class="seg-info" id="ol-seg">WAITING FOR SIMULATION</div>
+      <div id="ol-pos">—</div>
+      <div id="ol-feed">—</div>
+      <div id="ol-warn" style="color:var(--amber)"></div>
+    </div>
+
+    <!-- Top right overlay -->
+    <div class="scene-overlay overlay-tr" id="overlay-tr">
+      <div id="ol-mode" style="color:var(--accent);font-weight:700;font-size:12px">—</div>
+      <div id="ol-ap">—</div>
+      <div id="ol-ae">—</div>
+      <div id="ol-fz">—</div>
+    </div>
+
+    <!-- Alert banner -->
+    <div class="alert-banner" id="alert-banner">
+      ⚠ <span id="alert-text">CRITICAL FORCE DETECTED</span>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+
+    <!-- Chip formation -->
+    <div class="panel-section">
+      <div class="section-title">chip formation</div>
+      <div class="chip-views">
+
+        <!-- Cross section -->
+        <div class="chip-view-box">
+          <div class="chip-view-label">cross section</div>
+          <svg id="chip-cross-svg" width="130" height="130" viewBox="-65 -65 130 130">
+            <defs>
+              <radialGradient id="chipHeat" cx="80%" cy="50%" r="60%">
+                <stop offset="0%"   stop-color="#ff6d00" stop-opacity="0.95"/>
+                <stop offset="40%"  stop-color="#ffb300" stop-opacity="0.85"/>
+                <stop offset="100%" stop-color="#e8c060" stop-opacity="0.60"/>
+              </radialGradient>
+              <radialGradient id="toolGrad" cx="40%" cy="40%" r="60%">
+                <stop offset="0%"  stop-color="#2a2a4a"/>
+                <stop offset="100%" stop-color="#0e0e1e"/>
+              </radialGradient>
+              <filter id="edgeGlow">
+                <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+
+            <!-- Stock context -->
+            <path d="M 0 0 L 55 0 L 55 55 L 0 55 Z"
+                  fill="#1a1a2e" stroke="#2a2a45" stroke-width="0.5" opacity="0.4"/>
+            <text x="30" y="38" fill="#2a2a50" font-family="JetBrains Mono"
+                  font-size="7" text-anchor="middle">STOCK</text>
+
+            <!-- Tool circle -->
+            <circle id="chip-tool-circle" cx="0" cy="0" r="42"
+                    fill="url(#toolGrad)" stroke="#2a2a50" stroke-width="1"/>
+
+            <!-- Flute lines -->
+            <line x1="0" y1="0" x2="42"  y2="0"   stroke="#3a3a6a" stroke-width="0.8" opacity="0.5"/>
+            <line x1="0" y1="0" x2="0"   y2="42"  stroke="#3a3a6a" stroke-width="0.8" opacity="0.5"/>
+            <line x1="0" y1="0" x2="-42" y2="0"   stroke="#3a3a6a" stroke-width="0.8" opacity="0.5"/>
+            <line x1="0" y1="0" x2="0"   y2="-42" stroke="#3a3a6a" stroke-width="0.8" opacity="0.5"/>
+            <circle cx="0" cy="0" r="2" fill="#4a4a80"/>
+
+            <!-- Chip crescent — updated by JS -->
+            <path id="chip-crescent" d=""
+                  fill="url(#chipHeat)" stroke="#ff9500" stroke-width="0.8" opacity="0.9"/>
+
+            <!-- Thickness annotations -->
+            <line id="chip-ann-entry" x1="0" y1="0" x2="0" y2="0"
+                  stroke="#00e676" stroke-width="1.2" stroke-dasharray="2 2" opacity="0.7"/>
+            <line id="chip-ann-peak"  x1="0" y1="0" x2="0" y2="0"
+                  stroke="#ff6d00" stroke-width="1.8" stroke-dasharray="2 2" opacity="0.9"/>
+
+            <!-- Labels -->
+            <text id="chip-hmax-label" x="0" y="0"
+                  fill="#ff6d00" font-family="JetBrains Mono" font-size="6" opacity="0.8"/>
+
+            <!-- Feed arrow -->
+            <path d="M 0 -58 L -4 -53 L 4 -53 Z" fill="#00e5ff" opacity="0.4"/>
+            <text x="6" y="-52" fill="#00e5ff" font-family="JetBrains Mono"
+                  font-size="5" opacity="0.5">feed</text>
+
+            <!-- Tool diameter label -->
+            <line x1="-42" y1="55" x2="42" y2="55" stroke="#2a2a50" stroke-width="0.5"/>
+            <text id="chip-diam-label" x="0" y="61"
+                  fill="#4a4a70" font-family="JetBrains Mono"
+                  font-size="6" text-anchor="middle">Ø —mm</text>
+          </svg>
+        </div>
+
+        <!-- Side view -->
+        <div class="chip-view-box">
+          <div class="chip-view-label">side view — ap</div>
+          <svg id="chip-side-svg" width="90" height="130" viewBox="-15 -65 90 130">
+            <defs>
+              <linearGradient id="chipSideGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%"   stop-color="#ff6d00" stop-opacity="0.9"/>
+                <stop offset="60%"  stop-color="#ffb300" stop-opacity="0.8"/>
+                <stop offset="100%" stop-color="#e8c060" stop-opacity="0.5"/>
+              </linearGradient>
+              <linearGradient id="toolSideGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%"   stop-color="#1a1a35"/>
+                <stop offset="50%"  stop-color="#2a2a4a"/>
+                <stop offset="100%" stop-color="#1a1a35"/>
+              </linearGradient>
+            </defs>
+
+            <!-- Stock surface -->
+            <line x1="-10" y1="0" x2="65" y2="0" stroke="#2a2a45" stroke-width="1"/>
+            <text x="-10" y="-3" fill="#2a2a50" font-family="JetBrains Mono" font-size="6">Z=0</text>
+
+            <!-- Tool body -->
+            <rect x="5" y="-60" width="30" height="60"
+                  fill="url(#toolSideGrad)" stroke="#2a2a50" stroke-width="0.8"/>
+            <line x1="5"  y1="-55" x2="35" y2="-5"  stroke="#3a3a6a" stroke-width="0.5" opacity="0.4"/>
+            <line x1="5"  y1="-35" x2="35" y2="-25" stroke="#3a3a6a" stroke-width="0.5" opacity="0.4"/>
+
+            <!-- Chip side — height = ap scaled -->
+            <rect id="chip-side-rect" x="35" y="0" width="14" height="0"
+                  fill="url(#chipSideGrad)" stroke="#ff9500" stroke-width="0.8" opacity="0.85"/>
+
+            <!-- ap annotation -->
+            <line id="ap-ann-line" x1="52" y1="0" x2="52" y2="0"
+                  stroke="#2a2a50" stroke-width="0.5"/>
+            <line x1="49" y1="0"  x2="55" y2="0"  stroke="#2a2a50" stroke-width="0.5"/>
+            <line id="ap-ann-bot" x1="49" y1="0" x2="55" y2="0"
+                  stroke="#2a2a50" stroke-width="0.5"/>
+            <text id="ap-label-val" x="58" y="-8"
+                  fill="#ffb300" font-family="JetBrains Mono" font-size="6">—</text>
+            <text x="58" y="-2" fill="#ffb300" font-family="JetBrains Mono" font-size="6">ap</text>
+
+            <!-- Cutting glow -->
+            <ellipse id="cut-glow" cx="35" cy="0" rx="0" ry="0"
+                     fill="#ff6d00" opacity="0.5"/>
+
+            <text x="-10" y="48" fill="#2a2a50" font-family="JetBrains Mono" font-size="6">↑ Z</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Chip stats -->
+      <div class="chip-stats-row">
+        <div class="chip-stat-box">
+          <div class="cslabel">h_max</div>
+          <div class="csvalue" id="cs-hmax">—</div>
+        </div>
+        <div class="chip-stat-box">
+          <div class="cslabel">h_avg</div>
+          <div class="csvalue" id="cs-havg">—</div>
+        </div>
+        <div class="chip-stat-box">
+          <div class="cslabel">ap</div>
+          <div class="csvalue" id="cs-ap">—</div>
+        </div>
+        <div class="chip-stat-box">
+          <div class="cslabel">ae</div>
+          <div class="csvalue" id="cs-ae">—</div>
+        </div>
+        <div class="chip-stat-box">
+          <div class="cslabel">arc</div>
+          <div class="csvalue" id="cs-arc">—</div>
+        </div>
+        <div class="chip-stat-box">
+          <div class="cslabel">temp °C</div>
+          <div class="csvalue" id="cs-temp">—</div>
+        </div>
+      </div>
+
+      <div class="chip-type-badge good" id="chip-badge">— AWAITING SIMULATION —</div>
+    </div>
+
+    <!-- Force bars -->
+    <div class="panel-section">
+      <div class="section-title">cutting forces</div>
+      <div class="force-bars">
+        <div class="force-bar-row">
+          <div class="force-label">Fc</div>
+          <div class="force-track"><div class="force-fill" id="bar-fc"></div></div>
+          <div class="force-value" id="val-fc">—</div>
+          <div class="force-status" id="ico-fc"></div>
+        </div>
+        <div class="force-bar-row">
+          <div class="force-label">Fy</div>
+          <div class="force-track"><div class="force-fill" id="bar-fy"></div></div>
+          <div class="force-value" id="val-fy">—</div>
+          <div class="force-status" id="ico-fy"></div>
+        </div>
+        <div class="force-bar-row">
+          <div class="force-label">Fz</div>
+          <div class="force-track"><div class="force-fill" id="bar-fz"></div></div>
+          <div class="force-value" id="val-fz">—</div>
+          <div class="force-status" id="ico-fz"></div>
+        </div>
+        <div class="force-bar-row" style="margin-top:4px;padding-top:6px;border-top:1px solid var(--border)">
+          <div class="force-label" style="color:var(--text-bright);font-weight:700">|F|</div>
+          <div class="force-track"><div class="force-fill" id="bar-fm"></div></div>
+          <div class="force-value" id="val-fm">—</div>
+          <div class="force-status" id="ico-fm"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spindle stats -->
+    <div class="panel-section">
+      <div class="section-title">spindle load</div>
+      <div class="sys-stats">
+        <div class="sys-stat">
+          <div class="sys-label">Power</div>
+          <div class="sys-value" id="sv-power">— kW</div>
+        </div>
+        <div class="sys-stat">
+          <div class="sys-label">Torque</div>
+          <div class="sys-value" id="sv-torque">— Nm</div>
+        </div>
+        <div class="sys-stat">
+          <div class="sys-label">Temp °C</div>
+          <div class="sys-value" id="sv-temp">—</div>
+        </div>
+        <div class="sys-stat">
+          <div class="sys-label">RPM</div>
+          <div class="sys-value" id="sv-rpm">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="panel-section" style="flex:1">
+      <div class="section-title">run summary</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;
+                  color:var(--text-dim);line-height:2">
+        <div>SEGMENTS: <span id="sum-segs" style="color:var(--text-bright)">—</span></div>
+        <div>CUTTING:  <span id="sum-cut"  style="color:var(--text-bright)">—</span></div>
+        <div>LENGTH:   <span id="sum-len"  style="color:var(--text-bright)">—</span> mm</div>
+        <div>MAX FORCE:<span id="sum-fmax" style="color:var(--text-bright)"> —</span> N</div>
+        <div style="color:var(--amber)">WARNINGS: <span id="sum-warn">—</span></div>
+        <div style="color:var(--red)">CRITICAL: <span id="sum-crit">—</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- TIMELINE -->
+<div class="timeline">
+  <div class="timeline-controls">
+    <button class="ctrl-btn" onclick="resetSim()" title="Reset">↺</button>
+    <button class="ctrl-btn" onclick="stepBack()" title="Step back">◀</button>
+    <button class="ctrl-btn play" id="play-btn" onclick="togglePlay()">▶</button>
+    <button class="ctrl-btn" onclick="stepForward()" title="Step forward">▶</button>
+    <button class="ctrl-btn" onclick="stepForward(5)" title="Skip ahead">▶▶</button>
+    <div class="progress-track" onclick="seekClick(event)">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <div class="seg-counter" id="seg-counter">— / —</div>
+    <select class="speed-select" id="speed-select">
+      <option value="2000">0.5×</option>
+      <option value="1000" selected>1×</option>
+      <option value="500">2×</option>
+      <option value="200">5×</option>
+      <option value="50">MAX</option>
+    </select>
+  </div>
+  <div class="seg-dots" id="seg-dots">
+    <span class="dot-legend">upload a g-code file to begin</span>
+  </div>
+</div>
+
+<!-- THREE.JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/chip.js"></script>
+<script src="/static/js/scene.js"></script>
+<script src="/static/js/main.js"></script>
+
+</body>
+</html>
