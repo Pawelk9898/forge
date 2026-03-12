@@ -1,0 +1,51 @@
+{
+  "aluminum_6061": {
+    "name": "Aluminum 6061",
+    "kc1": 700,
+    "mc": 0.25,
+    "density": 2.7,
+    "hardness_HB": 95
+  },
+  "aluminum_7075": {
+    "name": "Aluminum 7075",
+    "kc1": 750,
+    "mc": 0.25,
+    "density": 2.81,
+    "hardness_HB": 150
+  },
+  "steel_1045": {
+    "name": "Steel 1045",
+    "kc1": 1800,
+    "mc": 0.26,
+    "density": 7.85,
+    "hardness_HB": 170
+  },
+  "steel_4140": {
+    "name": "Steel 4140",
+    "kc1": 2000,
+    "mc": 0.26,
+    "density": 7.85,
+    "hardness_HB": 197
+  },
+  "stainless_316": {
+    "name": "Stainless Steel 316",
+    "kc1": 2100,
+    "mc": 0.27,
+    "density": 8.0,
+    "hardness_HB": 170
+  },
+  "titanium_ti6al4v": {
+    "name": "Titanium Ti-6Al-4V",
+    "kc1": 2200,
+    "mc": 0.28,
+    "density": 4.43,
+    "hardness_HB": 334
+  },
+  "inconel_718": {
+    "name": "Inconel 718",
+    "kc1": 2800,
+    "mc": 0.30,
+    "density": 8.19,
+    "hardness_HB": 363
+  }
+}
