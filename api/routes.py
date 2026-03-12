@@ -1,6 +1,11 @@
 # api/routes.py
 import sys
 import os
+from physics.core.toolpath import Toolpath
+from physics.core.voxel_grid import VoxelGrid
+import numpy as np
+from fastapi import APIRouter, UploadFile, File, HTTPException
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -117,7 +122,27 @@ async def simulate(
     # Run pipeline
     segs = GCodeParser().parse_string(gcode_str)
     segs = EngagementCalculator(tool, stock).calculate(segs)
+
+    # Pass 1 — initial force estimate (assumed ae)
     segs = KienzleForceModel(tool, material, warning_force, critical_force).calculate(segs)
+
+    # Pass 2 — voxel grid for true ae
+    grid = VoxelGrid(
+        x_max=stock_x, y_max=stock_y,
+        z_min=-stock_z, z_max=0,
+        resolution=1.0
+    )
+
+    for seg in segs:
+        ae_true, _ = grid.remove_material(seg, tool, seg.force_magnitude)
+        if seg.is_cutting and ae_true > 0:
+            seg.ae = ae_true
+
+    # Pass 3 — recalculate forces with true ae
+    segs = KienzleForceModel(tool, material, warning_force, critical_force).calculate(segs)
+
+    # Store voxel grid state for visualization
+    _simulation_state["grid"] = grid
 
     # Store state for chip endpoint
     _simulation_state["segments"] = segs
@@ -174,11 +199,33 @@ def get_chip(segment_index: int):
     return ChipResponse(**chip)
 
 
-@router.get("/summary")
-def get_summary():
-    """Return summary of last simulation."""
-    segs = _simulation_state.get("segments", [])
-    if not segs:
+@router.get("/voxels/{up_to_segment}")
+def get_voxels(up_to_segment: int):
+    """
+    Return voxel state up to a given segment.
+    Used by Three.js to render material removal.
+    """
+    grid = _simulation_state.get("grid")
+    if not grid:
         raise HTTPException(status_code=404, detail="No simulation run yet")
-    tp = Toolpath(segs)
-    return tp.summary()
+
+    rem_coords, rmv_coords, rmv_forces = grid.get_snapshot(up_to_segment)
+
+    # Downsample if too many voxels for JSON transfer
+    # Cap at 5000 points each for performance
+    def sample(arr, n=5000):
+        if len(arr) == 0:
+            return []
+        if len(arr) <= n:
+            return arr.tolist()
+        idx = np.linspace(0, len(arr) - 1, n, dtype=int)
+        return arr[idx].tolist()
+
+    return {
+        "remaining":      sample(rem_coords),
+        "removed":        sample(rmv_coords),
+        "removed_forces": sample(rmv_forces) if len(rmv_forces) > 0 else [],
+        "removed_pct":    grid.material_removed_pct,
+        "total_voxels":   grid.total_voxels,
+        "removed_count":  grid.removed_voxels,
+    }
