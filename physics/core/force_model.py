@@ -36,8 +36,8 @@ class KienzleForceModel:
     def calculate(self, segments: list) -> list:
         """Calculate forces for all cutting segments."""
         for seg in segments:
-            if not seg.is_cutting or seg.ap <= 0:
-                continue
+            if not seg.is_cutting or seg.ap <= 0 or seg.ae <= 0:
+                    continue                
             self._calculate_forces(seg)
         return segments
 

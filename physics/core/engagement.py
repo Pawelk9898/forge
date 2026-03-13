@@ -35,17 +35,45 @@ class EngagementCalculator:
     def _calculate_segment(self, seg: Segment):
         """Calculate engagement parameters for a single cutting segment."""
 
+        # --- Check if tool is actually inside stock XY bounds ---
+        tool_r = self.tool.diameter / 2
+
+        # Tool center path — check if any part of tool overlaps stock
+        x_mid = (seg.x_start + seg.x_end) / 2
+        y_mid = (seg.y_start + seg.y_end) / 2
+
+        in_stock_x = (x_mid + tool_r) > self.stock.x_min and (x_mid - tool_r) < self.stock.x_max
+        in_stock_y = (y_mid + tool_r) > self.stock.y_min and (y_mid - tool_r) < self.stock.y_max
+        in_stock_z = seg.z_end < self.stock.z_max and seg.z_end >= self.stock.z_min
+
+        if not (in_stock_x and in_stock_y and in_stock_z):
+            # Tool is outside stock — no engagement
+            seg.ap = 0.0
+            seg.ae = 0.0
+            seg.fz = 0.0
+            seg.engagement_angle = 0.0
+            return
+
         # --- Axial depth of cut (ap) ---
         z_mid = (seg.z_start + seg.z_end) / 2
         seg.ap = self.stock.axial_depth_at(z_mid)
 
-        # For plunge moves use the Z travel itself
+        # For plunge moves use Z travel
         if seg.is_plunge:
             seg.ap = abs(seg.delta_z)
+            seg.ae = 0.0  # plunge has no radial engagement
+            seg.fz = self.tool.feed_per_tooth(seg.feed_rate, seg.spindle_rpm)
+            seg.engagement_angle = 0.0
+            return
 
         # --- Radial depth of cut (ae) ---
-        seg.ae = self.tool.diameter * self.default_ae_ratio
-        seg.ae = min(seg.ae, self.tool.diameter)
+        # How much of tool is inside stock on each side
+        ae_x_entry = min(x_mid + tool_r, self.stock.x_max) - max(x_mid - tool_r, self.stock.x_min)
+        ae_y_entry = min(y_mid + tool_r, self.stock.y_max) - max(y_mid - tool_r, self.stock.y_min)
+
+        # ae is the smaller overlap (limiting engagement direction)
+        raw_ae = min(ae_x_entry, ae_y_entry)
+        seg.ae = max(0.0, min(raw_ae, self.tool.diameter))
 
         # --- Feed per tooth ---
         seg.fz = self.tool.feed_per_tooth(seg.feed_rate, seg.spindle_rpm)

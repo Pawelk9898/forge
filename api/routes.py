@@ -201,30 +201,47 @@ def get_chip(segment_index: int):
 
 @router.get("/voxels/{up_to_segment}")
 def get_voxels(up_to_segment: int):
-    """
-    Return voxel state up to a given segment.
-    Used by Three.js to render material removal.
-    """
     grid = _simulation_state.get("grid")
     if not grid:
         raise HTTPException(status_code=404, detail="No simulation run yet")
 
     rem_coords, rmv_coords, rmv_forces = grid.get_snapshot(up_to_segment)
 
-    # Downsample if too many voxels for JSON transfer
-    # Cap at 5000 points each for performance
-    def sample(arr, n=5000):
-        if len(arr) == 0:
+    # Only send TOP LAYER voxels — highest Z for each XY column
+    # This is all Three.js needs to show the surface
+    def top_layer(coords):
+        if len(coords) == 0:
             return []
-        if len(arr) <= n:
-            return arr.tolist()
-        idx = np.linspace(0, len(arr) - 1, n, dtype=int)
-        return arr[idx].tolist()
+        # Group by XY, keep highest Z
+        xy_to_z = {}
+        for v in coords:
+            key = (round(v[0], 1), round(v[1], 1))
+            if key not in xy_to_z or v[2] > xy_to_z[key]:
+                xy_to_z[key] = v[2]
+        return [[k[0], k[1], z] for k, z in xy_to_z.items()]
+
+    def top_layer_with_force(coords, forces):
+        if len(coords) == 0:
+            return [], []
+        xy_to_best = {}
+        for i, v in enumerate(coords):
+            key = (round(v[0], 1), round(v[1], 1))
+            if key not in xy_to_best or v[2] > xy_to_best[key][0]:
+                xy_to_best[key] = (v[2], forces[i] if i < len(forces) else 0)
+        pts = [[k[0], k[1], z] for k, (z, f) in xy_to_best.items()]
+        frc = [f for k, (z, f) in xy_to_best.items()]
+        return pts, frc
+
+    remaining_top = top_layer(rem_coords.tolist() if len(rem_coords) > 0 else [])
+    removed_top, forces_top = top_layer_with_force(
+        rmv_coords.tolist() if len(rmv_coords) > 0 else [],
+        rmv_forces.tolist() if len(rmv_forces) > 0 else []
+    )
 
     return {
-        "remaining":      sample(rem_coords),
-        "removed":        sample(rmv_coords),
-        "removed_forces": sample(rmv_forces) if len(rmv_forces) > 0 else [],
+        "remaining":      remaining_top,
+        "removed":        removed_top,
+        "removed_forces": forces_top,
         "removed_pct":    grid.material_removed_pct,
         "total_voxels":   grid.total_voxels,
         "removed_count":  grid.removed_voxels,
